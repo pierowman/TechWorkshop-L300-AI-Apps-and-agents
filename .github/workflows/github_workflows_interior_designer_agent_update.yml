@@ -1,0 +1,42 @@
+name: Update interior-designer Agent
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/infra/agents/interior-designer.json'
+      - 'src/prompts/InteriorDesignAgentPrompt.txt'
+
+jobs:
+  update-agent:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v2.1.1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Read and JSON-escape prompt
+        run: |
+          INSTRUCTIONS=$(python3 -c "import json; print(json.dumps(open('src/prompts/InteriorDesignAgentPrompt.txt').read()))")
+          echo "INSTRUCTIONS=$INSTRUCTIONS" >> $GITHUB_ENV
+
+      - name: Build agent payload
+        run: |
+          jq \
+            --arg model "${{ secrets.GPT_DEPLOYMENT }}" \
+            --argjson instructions "$INSTRUCTIONS" \
+            '.definition.model = $model | .definition.instructions = $instructions' \
+            src/infra/agents/interior-designer.json > /tmp/agent-payload.json
+
+      - name: Deploy agent version
+        run: |
+          az rest --method POST \
+            --url "${{ secrets.FOUNDRY_ENDPOINT }}/agents/interior-designer/versions?api-version=2025-11-15-preview" \
+            --resource "https://ai.azure.com" \
+            --body @/tmp/agent-payload.json
